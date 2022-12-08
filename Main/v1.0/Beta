@@ -32,13 +32,26 @@ local silent = legit:Section{
     Side = "Right"
 }
 
+getgenv().OldAimPart = "UpperTorso"
+getgenv().AimPart = "UpperTorso" -- For R15 Games: {UpperTorso, LowerTorso, HumanoidRootPart, Head} | For R6 Games: {Head, Torso, HumanoidRootPart}  
+    getgenv().AimlockKey = "m"
+    getgenv().AimRadius = 100-- How far away from someones character you want to lock on at
+    getgenv().ThirdPerson = false 
+    getgenv().FirstPerson = false
+    getgenv().TeamCheck = false -- Check if Target is on your Team (True means it wont lock onto your teamates, false is vice versa) (Set it to false if there are no teams)
+    getgenv().PredictMovement = true -- Predicts if they are moving in fast velocity (like jumping) so the aimbot will go a bit faster to match their speed 
+    getgenv().PredictionVelocity = 6.612
+    getgenv().CheckIfJumped = false
+    getgenv().Smoothness = false
+    getgenv().SmoothnessAmount = 0.015
+    getgenv().AirFix = true
 
 local toggle = aimbot:Toggle{
     Name = "Enabled",
     Flag = "yes",
     Callback  = function(bool)
-        getgenv().Settings.ThirdPerson = bool
-        getgenv().Settings.FirstPerson = bool
+        getgenv().ThirdPerson = bool
+        getgenv().FirstPerson = bool
     end
 }
 
@@ -48,15 +61,7 @@ local box = aimbot:Box{
     Placeholder = "Keybind",
     Flag = "yesnt",
     Callback = function(text)
-        getgenv().Settings.AimlockKey = text
-    end
-}
-
-local toggle = aimbot:Toggle{
-    Name = "Notification",
-    Flag = "ss",
-    Callback  = function(bool)
-        getgenv().Settings.Notificationmode = bool
+        getgenv().AimlockKey = text
     end
 }
 
@@ -64,7 +69,7 @@ local toggle = aimbot:Toggle{
     Name = "Team Check",
     Flag = "bffr",
     Callback  = function(bool)
-        getgenv().Settings.TeamCheck = bool
+        getgenv().TeamCheck = bool
     end
 }
 
@@ -72,7 +77,7 @@ local toggle = aimbot:Toggle{
     Name = "Air-Shot Func",
     Flag = "ok",
     Callback  = function(bool)
-        getgenv().Settings.CheckIfJumped = bool
+        getgenv().CheckIfJumped = bool
     end
 }
 
@@ -90,7 +95,7 @@ aimbot:Dropdown{
     --ScrollingMax = 5, -- caps the amount it contains before scrolling
     Flag = "fartzad",
     Callback = function(option)
-        getgenv().Settings.AimPart = option
+        getgenv().OldAimPart = option
     end
 }
 
@@ -109,19 +114,19 @@ aimbot:Dropdown{
     --ScrollingMax = 5, -- caps the amount it contains before scrolling
     Flag = "hello",
     Callback = function(option)
-        getgenv().Settings.CheckIfJumpedpart = option
+        getgenv().AimPart = option
     end
 }
 
 aimbot:Slider{
-    Text = "[value]/0.3",
+    Text = "[value]/15",
     --Default = 5,
-    Min = 0,
-    Max = 0.3,
-    Float = 0.005,
+    Min = 1,
+    Max = 15,
+    Float = 0.001,
     Flag = "yeano",
     Callback = function(value)
-        getgenv().Settings.PredictionVelocity = value
+        getgenv().PredictionVelocity = value
     end
 }
 
@@ -131,7 +136,7 @@ local box = aimbot:Box{
     Placeholder = "Prediction",
     Flag = "yeayeayea",
     Callback = function(text)
-        getgenv().Settings.PredictionVelocity = text
+        getgenv().PredictionVelocity = text
     end
 }
 
@@ -141,7 +146,7 @@ local toggle = aimbot:Toggle{
     Name = "Enabled",
     Flag = "okokok",
     Callback  = function(bool)
-        getgenv().Settings.Smoothness = bool
+        getgenv().Smoothness = bool
     end
 }
 
@@ -150,10 +155,10 @@ aimbot:Slider{
     --Default = 5,
     Min = 0.0001,
     Max = 1,
-    Float = 0.005,
+    Float = 0.001,
     Flag = "yeano",
     Callback = function(value)
-        getgenv().Settings.SmoothnessAmount = value
+        getgenv().SmoothnessAmount = value
     end
 }
 
@@ -519,46 +524,163 @@ keybindsection:Keybind{
 --library:Close()
 --library:Unload()
 
-getgenv().Settings = {
-    AimlockKey = "m",
-    AimPart = "Head",
-    CheckIfJumpedpart = "UpperTorso",
-    AimRadius = 100,
-    Disableontargetdeath = true,
-    Disableonplayerdeath = true,
-    ThirdPerson = false,
-    FirstPerson = false,
-    Undergroundresolver = false,
-    DetectAntiLock = false,
-    AntiLockSpeedDetection = 70,
-    TeamCheck = false,
-    PredictMovement = true,
-    PredictionVelocity = 0.16221418,
-    CheckIfJumped = false,
-    Smoothness = false,
-    Notificationmode = false,
-    SmoothnessAmount = 0.019
-}
+    local Players, Uis, RService, SGui = game:GetService"Players", game:GetService"UserInputService", game:GetService"RunService", game:GetService"StarterGui";
+    local Client, Mouse, Camera, CF, RNew, Vec3, Vec2 = Players.LocalPlayer, Players.LocalPlayer:GetMouse(), workspace.CurrentCamera, CFrame.new, Ray.new, Vector3.new, Vector2.new;
+    local Aimlock, MousePressed, CanNotify = true, false, false;
+    local AimlockTarget;
+    local OldPre;
+    
 
-getgenv().Visual = {
-    Thickness = 3.4,
-    Transparency = 1,
-    Color = Color3.fromRGB(0, 255, 0),
-    FOV = false,
-    LINE = false
-}
+    
+    getgenv().WorldToViewportPoint = function(P)
+        return Camera:WorldToViewportPoint(P)
+    end
+    
+    getgenv().WorldToScreenPoint = function(P)
+        return Camera.WorldToScreenPoint(Camera, P)
+    end
+    
+    getgenv().GetObscuringObjects = function(T)
+        if T and T:FindFirstChild(getgenv().AimPart) and Client and Client.Character:FindFirstChild("Head") then 
+            local RayPos = workspace:FindPartOnRay(RNew(
+                T[getgenv().AimPart].Position, Client.Character.Head.Position)
+            )
+            if RayPos then return RayPos:IsDescendantOf(T) end
+        end
+    end
+    
+    getgenv().GetNearestTarget = function()
+        -- Credits to whoever made this, i didnt make it, and my own mouse2plr function kinda sucks
+        local players = {}
+        local PLAYER_HOLD  = {}
+        local DISTANCES = {}
+        for i, v in pairs(Players:GetPlayers()) do
+            if v ~= Client then
+                table.insert(players, v)
+            end
+        end
+        for i, v in pairs(players) do
+            if v.Character ~= nil then
+                local AIM = v.Character:FindFirstChild("Head")
+                if getgenv().TeamCheck == true and v.Team ~= Client.Team then
+                    local DISTANCE = (v.Character:FindFirstChild("Head").Position - game.Workspace.CurrentCamera.CFrame.p).magnitude
+                    local RAY = Ray.new(game.Workspace.CurrentCamera.CFrame.p, (Mouse.Hit.p - game.Workspace.CurrentCamera.CFrame.p).unit * DISTANCE)
+                    local HIT,POS = game.Workspace:FindPartOnRay(RAY, game.Workspace)
+                    local DIFF = math.floor((POS - AIM.Position).magnitude)
+                    PLAYER_HOLD[v.Name .. i] = {}
+                    PLAYER_HOLD[v.Name .. i].dist= DISTANCE
+                    PLAYER_HOLD[v.Name .. i].plr = v
+                    PLAYER_HOLD[v.Name .. i].diff = DIFF
+                    table.insert(DISTANCES, DIFF)
+                elseif getgenv().TeamCheck == false and v.Team == Client.Team then 
+                    local DISTANCE = (v.Character:FindFirstChild("Head").Position - game.Workspace.CurrentCamera.CFrame.p).magnitude
+                    local RAY = Ray.new(game.Workspace.CurrentCamera.CFrame.p, (Mouse.Hit.p - game.Workspace.CurrentCamera.CFrame.p).unit * DISTANCE)
+                    local HIT,POS = game.Workspace:FindPartOnRay(RAY, game.Workspace)
+                    local DIFF = math.floor((POS - AIM.Position).magnitude)
+                    PLAYER_HOLD[v.Name .. i] = {}
+                    PLAYER_HOLD[v.Name .. i].dist= DISTANCE
+                    PLAYER_HOLD[v.Name .. i].plr = v
+                    PLAYER_HOLD[v.Name .. i].diff = DIFF
+                    table.insert(DISTANCES, DIFF)
+                end
+            end
+        end
+        
+        if unpack(DISTANCES) == nil then
+            return nil
+        end
+        
+        local L_DISTANCE = math.floor(math.min(unpack(DISTANCES)))
+        if L_DISTANCE > getgenv().AimRadius then
+            return nil
+        end
+        
+        for i, v in pairs(PLAYER_HOLD) do
+            if v.diff == L_DISTANCE then
+                return v.plr
+            end
+        end
+        return nil
+    end
+    
+    Mouse.KeyDown:Connect(function(a)
+        if not (Uis:GetFocusedTextBox()) then 
+            if a == AimlockKey and AimlockTarget == nil then
+                pcall(function()
+                    if MousePressed ~= true then MousePressed = true end 
+                    local Target;Target = GetNearestTarget()
+                    if Target ~= nil then 
+                        AimlockTarget = Target
+                    end
+                end)
+            elseif a == AimlockKey and AimlockTarget ~= nil then
+                if AimlockTarget ~= nil then AimlockTarget = nil end
+                if MousePressed ~= false then 
+                    MousePressed = false 
+                end
+            end
+        end
+    end)
+    
+    RService.RenderStepped:Connect(function()
+        if getgenv().ThirdPerson == true and getgenv().FirstPerson == true then 
+            if (Camera.Focus.p - Camera.CoordinateFrame.p).Magnitude > 1 or (Camera.Focus.p - Camera.CoordinateFrame.p).Magnitude <= 1 then 
+                CanNotify = true 
+            else 
+                CanNotify = false 
+            end
+        elseif getgenv().ThirdPerson == true and getgenv().FirstPerson == false then 
+            if (Camera.Focus.p - Camera.CoordinateFrame.p).Magnitude > 1 then 
+                CanNotify = true 
+            else 
+                CanNotify = false 
+            end
+        elseif getgenv().ThirdPerson == false and getgenv().FirstPerson == true then 
+            if (Camera.Focus.p - Camera.CoordinateFrame.p).Magnitude <= 1 then 
+                CanNotify = true 
+            else 
+                CanNotify = false 
+            end
+        end
+        if Aimlock == true and MousePressed == true then 
+            if AimlockTarget and AimlockTarget.Character and AimlockTarget.Character:FindFirstChild(getgenv().AimPart) then 
+                if getgenv().FirstPerson == true then
+                    if CanNotify == true then
+                        if getgenv().PredictMovement == true then
+                            if getgenv().Smoothness == true then
+                                --// The part we're going to lerp/smoothen \\--
+                                local Main = CF(Camera.CFrame.p, AimlockTarget.Character[getgenv().AimPart].Position + AimlockTarget.Character[getgenv().AimPart].Velocity/PredictionVelocity)
+                                
+                                --// Making it work \\--
+                                Camera.CFrame = Camera.CFrame:Lerp(Main, getgenv().SmoothnessAmount, Enum.EasingStyle.Elastic, Enum.EasingDirection.InOut)
+                            else
+                                Camera.CFrame = CF(Camera.CFrame.p, AimlockTarget.Character[getgenv().AimPart].Position + AimlockTarget.Character[getgenv().AimPart].Velocity/PredictionVelocity)
+                            end
+                        elseif getgenv().PredictMovement == false then 
+                            if getgenv().Smoothness == true then
+                                --// The part we're going to lerp/smoothen \\--
+                                local Main = CF(Camera.CFrame.p, AimlockTarget.Character[getgenv().AimPart].Position)
 
-getgenv().Misc = {
-    PermKorblox = false,
-    PermHeadless = false
-}
+                                --// Making it work \\--
+                                Camera.CFrame = Camera.CFrame:Lerp(Main, getgenv().SmoothnessAmount, Enum.EasingStyle.Elastic, Enum.EasingDirection.InOut)
+                            else
+                                Camera.CFrame = CF(Camera.CFrame.p, AimlockTarget.Character[getgenv().AimPart].Position)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+         if CheckIfJumped == true then
+       if AimlockTarget.Character.HuDDDDDDDDDDWmanoid.FloorMaterial == Enum.Material.Air and AirFix == true then
+           getgenv().PredictionVelocity = getgenv().PredictionVelocity - 1.2
+           getgenv().AimPart = "UpperTorso"
+       else
+         getgenv().AimPart = getgenv().OldAimPart
+         print("sonak on top")
+       end
+    end
+end)
 
-
-loadstring(game:HttpGet("https://raw.githubusercontent.com/xwel333/aimlock/main/aimlock"))()
 
 --getgenvsettings
-if getgenv().AthenaKey == "GAbqDq2noE" then
-
-else
-    print("The Key Is incorrect.")
-end
